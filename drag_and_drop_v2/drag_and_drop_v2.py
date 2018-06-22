@@ -183,6 +183,10 @@ class DragAndDropBlock(
 
     block_settings_key = 'drag-and-drop-v2'
 
+    @property
+    def has_author_view(self):
+        return True
+
     def max_score(self):  # pylint: disable=no-self-use
         """
         Return the problem's max score, which for DnDv2 always equals 1.
@@ -237,6 +241,10 @@ class DragAndDropBlock(
         """
         correct_count, total_count = self._get_item_stats()
         return correct_count / float(total_count)
+
+    @XBlock.supports("multi_device")
+    def author_view(self, context):
+        return self.student_view(context)
 
     @XBlock.supports("multi_device")  # Enable this block for use in the mobile app via webview
     def student_view(self, context):
@@ -751,6 +759,37 @@ class DragAndDropBlock(
             self.raw_earned = current_raw_earned
             self._publish_grade(Score(self.raw_earned, self.max_score()))
 
+    def _additional_event_info(self):
+        item_states = self._get_item_state()
+        item_state_data = []
+        for item_state_key, item_state in item_states.items():
+            for item in self.data.get('items', []):
+                if str(item_state_key) == str(item['id']):
+                    item_state['id'] = item_state_key
+                    item_state['display_name'] = item['displayName']
+                    break
+            for zone in self.zones:
+                if zone['uid'] == item_state['zone']:
+                    item_state['zone'] = zone
+                    break
+            item_state_data.append(item_state)
+
+        current_raw_earned = self._learner_raw_score()
+        saved_raw_earned = self._get_raw_earned_if_set()
+        if current_raw_earned is None or current_raw_earned > saved_raw_earned:
+            raw_earned = current_raw_earned
+        elif saved_raw_earned:
+            raw_earned = saved_raw_earned
+        else:
+            raw_earned = 0
+
+        return {
+            'earned_score': raw_earned,
+            'max_score': self.max_score(),
+            'item_state': item_state_data,
+            'zones': self.zones
+        }
+
     def _publish_item_dropped_event(self, attempt, is_correct):
         """
         Publishes item dropped event.
@@ -763,13 +802,15 @@ class DragAndDropBlock(
         if not item_label:
             item_label = item.get("imageURL")
 
-        self.runtime.publish(self, 'edx.drag_and_drop_v2.item.dropped', {
+        event_data = {
             'item': item_label,
             'item_id': item['id'],
             'location': zone.get("title"),
             'location_id': zone.get("uid"),
             'is_correct': is_correct,
-        })
+        }
+        event_data.update(self._additional_event_info())
+        self.runtime.publish(self, 'edx.drag_and_drop_v2.item.dropped', event_data)
 
     def _publish_item_to_bank_event(self, item_id, is_correct):
         """
@@ -781,13 +822,15 @@ class DragAndDropBlock(
         if not item_label:
             item_label = item.get("imageURL")
 
-        self.runtime.publish(self, 'edx.drag_and_drop_v2.item.dropped', {
+        event_data = {
             'item': item_label,
             'item_id': item['id'],
             'location': 'item bank',
             'location_id': -1,
             'is_correct': is_correct,
-        })
+        }
+        event_data.update(self._additional_event_info())
+        self.runtime.publish(self, 'edx.drag_and_drop_v2.item.dropped', event_data)
 
     def _is_attempt_correct(self, attempt):
         """

@@ -1018,6 +1018,9 @@ class DragAndDropBlock(
 
         current_raw_earned = self._learner_raw_score()
         saved_raw_earned = self._get_raw_earned_if_set()
+        if saved_raw_earned is None:
+            saved_raw_earned = 0
+
         if current_raw_earned is None \
                 or (current_raw_earned and saved_raw_earned is None) \
                 or current_raw_earned > saved_raw_earned:
